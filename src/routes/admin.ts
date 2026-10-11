@@ -46,6 +46,12 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: GatewayContext) {
   // What the gateway sees about the caller, versus what it forwards (nothing). Useful to demo network shielding.
   app.get("/v1/gateway/whoami", async (req) => ({
     clientIpSeenByGateway: req.ip,
+    // The caller's own forwarding headers, shown back to them (useful to tune TRUST_PROXY_HOPS).
+    proxyHeaders: {
+      xForwardedFor: req.headers["x-forwarded-for"] ?? null,
+      trueClientIp: req.headers["true-client-ip"] ?? null,
+      cfConnectingIp: req.headers["cf-connecting-ip"] ?? null,
+    },
     forwardedToModel: { clientIp: null, cookies: null, userAgent: "natlas-sovereign-gateway/1.0", tenantKey: null },
   }));
 

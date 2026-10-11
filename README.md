@@ -1,10 +1,12 @@
 # N-ATLAS Sovereign Gateway
 
+[![CI](https://github.com/Em-driod/natlas-sovereign-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/Em-driod/natlas-sovereign-gateway/actions/workflows/ci.yml)
+
 **The privacy, security and edge-caching proxy for N-ATLAS, Nigeria's sovereign LLM.**
 
-**Live demo:** https://natlas-sovereign-gateway.onrender.com (dashboard and playground) · API base URL `https://natlas-sovereign-gateway.onrender.com/v1` · demo key `sk-natlas-demo-key`
+**Live:** https://natlas-gateway.onrender.com (dashboard and playground) · API base URL `https://natlas-gateway.onrender.com/v1` · demo key `sk-natlas-demo-key` · [beta evidence](https://natlas-gateway.onrender.com/beta) · [NDPA report](https://natlas-gateway.onrender.com/admin/report) · [N-ATLAS integration](N-ATLAS-INTEGRATION.md)
 
-> Hosted on Render's free plan with the built-in mock N-ATLAS. The first request after it has been idle can take about 30 to 50 seconds while it wakes up.
+> Hosted on Render's free plan, so the first request after it has been idle can take 30 to 50 seconds while it wakes up. The badge in the dashboard header shows which upstream is live: the official N-ATLaS, or the built-in mock used when no GPU is attached.
 
 Nigerian banks, fintechs, hospitals and government agencies want to build on N-ATLAS, but they can't send customer BVNs, NINs, phone numbers and home addresses to a model endpoint. They can't expose their internal network to it either, or pay full GPU inference cost for the same FAQ asked ten thousand times a day over a 3G connection.
 
@@ -125,6 +127,17 @@ flowchart LR
 | `NAME` | `Customer Adaeze Okafor`, `Alhaji Musa Bello`, `Mrs. Funke Adeyemi` | only after a Nigerian honorific or cue word, to avoid false positives |
 | `GPS` | `6.6018, 3.3515`, `lat: 9.07, lng: 7.47`, `6.42° N, 3.42° E` | → **`[GPS_1:Lagos/Ikeja]`** |
 | `ADDRESS` | `No. 12, Adeola Odeku Street, Victoria Island, Lagos` | → **`[ADDRESS_1:Lagos/Victoria Island]`** |
+| `PASSPORT` | `A12345678` | letter + 8 digits (A/B/D/P prefix, or a "passport" cue) |
+| `TIN` | `12345678-0001`, `TIN 1234567890` | FIRS format, or 10 digits with a tax cue |
+| `VIN` | `voter VIN 90F5 B04F 2F29 5462 344` | 19-character PVC number with a voter/INEC cue |
+| `LICENCE` | `ABC12345AA01` | FRSC driver's licence format |
+| `PLATE` | `LND-123AB` | Nigerian vehicle plate |
+
+An unlabelled 11-digit number starting with **22** (the prefix of every BVN issued so far) is treated as a BVN.
+
+### Both directions: egress DLP
+
+Input redaction protects what users send. The gateway also scans **what the model sends back**. If the answer contains personal data the caller never supplied (a phone number, email or name the model invented or memorised), it is replaced one-way with `[withheld phone]`, `[withheld email]` and so on, before it reaches the user or the cache. The response carries `x-natlas-egress-redactions`, the audit trail counts it, and the NDPA report lists it. Try the *Model leaks a phone number* scenario in the playground.
 
 GPS and addresses are **coarsened, not just hidden**. The model still learns the customer is in "Lagos/Ikeja" or "FCT/Wuse", which keeps its answers useful, but it never learns where the person is. The gateway knows 42 Nigerian districts and cities, and a point more than 25 km from any of them falls back to state level ([src/pii/regions.ts](src/pii/regions.ts)).
 
@@ -154,7 +167,38 @@ A tenant marked `zeroRetention` (or any request sent with `x-natlas-zero-retenti
 - **Semantic matching tuned for Nigeria.** "Abeg explain the loan rules in Pidgin for my client" hits the cached answer to "Explain the loan policy in Pidgin for my customer".
 - **Guards against wrong hits.** A prompt that differs in **language** (Yoruba vs Pidgin), **agency** (CAC vs FIRS), **state**, **negation** or **numbers** never reuses another prompt's answer. Matches are also scoped to the same system prompt and parameters, and high-temperature (creative) requests skip the cache.
 - **Mobile-first payloads.** Brotli/gzip on JSON. `x-natlas-lite: 1` returns just `{id, content, cache, ms}`. Cached answers stream as a few large SSE frames instead of hundreds of small ones, which suits high-latency 2G/3G links.
-- **Single node or many.** It works out of the box with an in-memory LRU. Set `REDIS_URL` to share the cache, rate limits and budgets across replicas.
+- **Single node or many.** It works out of the box with an in-memory LRU. Set `REDIS_URL` to share the cache, rate limits and budgets across replicas, and to make sandbox keys, the audit chain, dashboard stats and tester feedback **survive restarts and redeploys** (verified: a key created before a restart still works after it, and the chain stays intact).
+
+---
+
+## Security pillar
+
+- **Prompt-injection filter with de-obfuscation.** Rules cover instruction overrides, system-prompt leaks, DAN/developer-mode personas, Llama-3 role tokens (`<|start_header_id|>`), encoded payloads and exfiltration, in English, Pidgin, Yoruba, Hausa and Igbo. Before matching, the text is normalised so the usual evasions fail: spaced letters (`i g n o r e`), leetspeak (`1gn0re`), Cyrillic look-alikes, zero-width characters and **base64-encoded** instructions. Matching only after de-obfuscation adds an `obfuscation` signal.
+- **Spoof-proof client IPs.** Only the configured number of reverse-proxy hops (`TRUST_PROXY_HOPS`) is trusted, so a client cannot fake `X-Forwarded-For` to escape per-IP limits.
+- **Network shield.** Requests to N-ATLAS leave with a fresh, minimal header set; `user` ids become HMAC pseudonyms. `GET /v1/gateway/whoami` shows what the gateway sees versus what it forwards (nothing).
+- **Tenant controls.** Hashed `sk-natlas-` keys, per-tenant requests-per-minute and daily token budgets, zero-retention tenants.
+- **Admin surface locked.** Tenant lists, the upstream switch and the mock inspector require `ADMIN_TOKEN`; the public audit view pseudonymises tenant ids.
+
+## Built for N-ATLAS specifically
+
+- **Language-aware.** Every prompt is labelled Yoruba, Hausa, Igbo, Nigerian Pidgin or English (`x-natlas-language`), using orthography such as ẹ ọ ṣ, ƙ ɗ ɓ, ị ụ ṅ plus function words. Traffic by language appears in stats and the audit trail, and the semantic cache never reuses an answer across languages.
+- **Hot-swappable N-ATLAS endpoint.** `POST /admin/upstream` points the gateway at a new N-ATLAS deployment (vLLM on a GPU box, a Colab tunnel, a hosted provider). The endpoint is **validated with a live call first**, so a typo cannot take the gateway down, and the choice persists across restarts.
+- **Official weights tooling.** [`deploy/colab/natlas_vllm_colab.ipynb`](deploy/colab/natlas_vllm_colab.ipynb) serves `NCAIR1/N-ATLaS` on a free GPU with vLLM, and `npm run evidence` produces [`natlas-evidence.md`](N-ATLAS-INTEGRATION.md) with multilingual prompts, what the model received and what came back.
+
+## Why not LiteLLM, Portkey or Cloudflare AI Gateway?
+
+Those are excellent general-purpose gateways: routing across hundreds of providers, retries, spend tracking. None of them knows what a BVN, NIN, NUBAN, FRSC licence or Nigerian phone number looks like, coarsens a Lagos GPS fix to a district, blocks a jailbreak written in Pidgin, labels Yoruba/Hausa/Igbo traffic, or produces a report an NDPC auditor can read. This gateway does one thing: make **N-ATLAS** safe to put in front of Nigerian customers. It is OpenAI-compatible, so it can also sit behind or in front of those tools.
+
+## Real-world validation
+
+External developers sign up for a sandbox key in the dashboard's **Developers** tab (30 requests a minute, 100k tokens a day), build against the gateway, and leave a rating and comments. The public [`/beta`](https://natlas-gateway.onrender.com/beta) page lists testers who opted in, **their actual request counts from the audit trail** (not self-reported), and their feedback. Personal data typed into feedback is redacted before storage.
+
+## Sustainability
+
+- **Who pays:** banks, fintechs, microfinance banks, telcos, hospitals and agencies that must use AI under the NDPA. The gateway turns "we can't send customer data to a model" into a compliant yes.
+- **Model:** free sandbox; a per-request tier for startups; an enterprise tier (self-hosted in a Nigerian data centre such as Galaxy Backbone or Rack Centre, SSO, custom redaction rules, monthly NDPA reports, SLA).
+- **Unit economics:** every cache hit is an inference that never runs. In the benchmark, hits answer in about 11 ms and use no GPU time, so the gateway pays for itself as the share of repeated questions grows.
+- **Operations:** one Node.js process plus optional Redis; horizontal scaling behind any load balancer; CI on every push.
 
 ---
 
@@ -171,14 +215,25 @@ npm start          # gateway + built-in mock N-ATLAS, one process
 - **Mock N-ATLAS** is mounted at `/mock/v1` on the same port in this mode (`npm run mock` runs it standalone on :9090).
 - **Narrated terminal demo:** in a second terminal, run `npm run demo`.
 - **Benchmark:** `npm run bench`, which writes `bench-results.md`.
-- **Tests:** `npm test` (20 tests covering redaction, re-hydration, the cache, injection and audit tampering).
+- **Tests:** `npm test`, 39 tests: unit tests for redaction, re-hydration, the cache, injection and audit tampering, plus end-to-end HTTP tests that run the real server against the mock N-ATLAS (PII never reaches the model, cache restores each caller's own values, spoofed IPs ignored, obfuscated jailbreaks blocked, egress DLP, streaming, zero retention, sandbox keys, feedback, upstream hot-swap, audit and report).
+- **Integration evidence:** `npm run evidence` writes `natlas-evidence.md`.
 - **The real OpenAI SDK:** `npx tsx examples/openai-node.ts`, or `python examples/openai_python.py`.
 
 The demo keys are `sk-natlas-demo-key` (a fintech tenant) and `sk-natlas-demo-key-zr` (a zero-retention hospital tenant).
 
 ### Connect the real N-ATLAS
 
-N-ATLaS is published on Hugging Face as [`NCAIR1/N-ATLaS`](https://huggingface.co/NCAIR1/N-ATLaS). Access is gated: accept the terms first. Serve it with any OpenAI-compatible server and point the gateway at it:
+N-ATLaS is published on Hugging Face as [`NCAIR1/N-ATLaS`](https://huggingface.co/NCAIR1/N-ATLaS). Access is gated: accept the terms first. Full steps and evidence: **[N-ATLAS-INTEGRATION.md](N-ATLAS-INTEGRATION.md)**.
+
+**Fastest (free GPU):** open [`deploy/colab/natlas_vllm_colab.ipynb`](deploy/colab/natlas_vllm_colab.ipynb) in Google Colab, run all cells, then hand the printed URL to a running gateway without redeploying:
+
+```bash
+curl -X POST https://<gateway>/admin/upstream \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"url":"https://<tunnel>.trycloudflare.com/v1","apiKey":"<printed key>","model":"n-atlas-8b","label":"NCAIR1/N-ATLaS on vLLM"}'
+```
+
+**Your own GPU host:**
 
 ```bash
 # On a GPU host
@@ -210,7 +265,11 @@ The gateway is OpenAI-compatible. Anything that speaks the Chat Completions API 
 | `GET` | `/admin/stats` | Aggregate metrics only (used by the dashboard). |
 | `GET` | `/admin/audit?n=50` · `/admin/audit/verify` | Audit tail and chain verification. Needs `ADMIN_TOKEN` when set. |
 | `GET` / `POST` | `/admin/tenants` | List tenants, or create one (`{name, rpm, dailyTokenBudget, zeroRetention}`); the key is shown once. |
-| `GET` | `/healthz` | Liveness. |
+| `POST` | `/v1/gateway/feedback` | `{rating, useCase, worked, improve}` from a tester (send their key to link it). |
+| `GET` | `/beta` | Real-world validation page: testers, audited usage, feedback. |
+| `GET` | `/v1/gateway/whoami` | What the gateway sees about the caller versus what it forwards. |
+| `GET` / `POST` | `/admin/upstream` | Show or hot-swap the N-ATLAS endpoint (`{url, apiKey, model, label}` or `{useMock: true}`). Admin only. |
+| `GET` | `/healthz` | Liveness, store type and current upstream. |
 
 **Request headers**
 
@@ -221,7 +280,7 @@ The gateway is OpenAI-compatible. Anything that speaks the Chat Completions API 
 | `x-natlas-lite: 1` | Minimal response body for low-bandwidth clients. |
 | `x-natlas-debug: 1` | Include `natlas.model_saw` (the redacted prompt the model received) in the response. |
 
-**Response headers:** `x-natlas-trace` (time per pipeline stage, e.g. `auth=0.11;limits=0.24;scan=0.07;redact=0.70;cache=0.38;model=1630;rehydrate=0.42`), `x-natlas-cache` (`HIT-EXACT` / `HIT-SEMANTIC` / `MISS` / `BYPASS`), `x-natlas-similarity`, `x-natlas-redactions` (e.g. `NIN=1,PHONE=1`), `x-natlas-latency-ms`, `x-natlas-upstream-ms`, `x-natlas-injection-score`, `x-natlas-budget-remaining`, `x-ratelimit-*`, `x-request-id`.
+**Response headers:** `x-natlas-language` (`yo`/`ha`/`ig`/`pcm`/`en`), `x-natlas-egress-redactions`, `x-natlas-trace` (time per pipeline stage, e.g. `auth=0.11;limits=0.24;scan=0.07;redact=0.70;cache=0.38;model=1630;rehydrate=0.42`), `x-natlas-cache` (`HIT-EXACT` / `HIT-SEMANTIC` / `MISS` / `BYPASS`), `x-natlas-similarity`, `x-natlas-redactions` (e.g. `NIN=1,PHONE=1`), `x-natlas-latency-ms`, `x-natlas-upstream-ms`, `x-natlas-injection-score`, `x-natlas-budget-remaining`, `x-ratelimit-*`, `x-request-id`.
 
 Errors use the OpenAI error format: `401 invalid_api_key`, `400 prompt_injection_detected`, `429 rate_limit_exceeded`, `429 budget_exceeded`, `502 upstream_unavailable`.
 
@@ -239,7 +298,21 @@ docker run -p 8080:8080 -e MOCK_UPSTREAM=false -e UPSTREAM_URL=http://gpu:8000/v
 
 **Render:** `render.yaml` is included. Create a *Blueprint* from the repo and it deploys on the free plan with the built-in mock.
 
-**Production checklist:** set `DEMO_API_KEY=` (empty), set `ADMIN_TOKEN` and `PSEUDONYM_SECRET` to long random values, create real keys with `npm run key -- "Tenant name" --rpm 300 --budget 5000000`, and set `REDIS_URL` when running more than one replica.
+**Production checklist:** set `DEMO_API_KEY=` (empty), set `ADMIN_TOKEN` and `PSEUDONYM_SECRET` to long random values, set `TRUST_PROXY_HOPS` to the number of proxies in front of the gateway (Render: 1), set `REDIS_URL` for persistence and multiple replicas, and create real keys with `npm run key -- "Tenant name" --rpm 300 --budget 5000000`.
+
+The live deployment runs on Render (Frankfurt) with a Render Key Value instance for persistence, `TRUST_PROXY_HOPS=1` and an admin token.
+
+---
+
+## Quick start in Pidgin
+
+Na one line you go change. Your app wey dey use OpenAI SDK, just point am to the gateway:
+
+```python
+client = OpenAI(base_url="https://natlas-gateway.onrender.com/v1", api_key="sk-natlas-demo-key")
+```
+
+Wetin go happen: before your message reach N-ATLAS, the gateway go hide BVN, NIN, phone number, account number and address. N-ATLAS go only see `[BVN_1]`, `[PHONE_1]`. When answer come back, the gateway go put your real numbers back. If person try jailbreak ("forget everything wey dem tell you"), e go block am. Question wey people don ask before go come back sharp-sharp from cache, no GPU money. Collect your own sandbox key for the **Developers** tab.
 
 ---
 
@@ -251,8 +324,11 @@ src/
   app.ts                Fastify setup, compression, error format
   config.ts             env configuration
   routes/chat.ts        the request pipeline (auth → limits → injection → redact → cache → upstream → re-hydrate → audit)
-  routes/admin.ts       stats, audit, tenants, inspect, dashboard
-  pii/redactor.ts       Nigerian PII detection, token vault, streaming re-hydration
+  routes/admin.ts       stats, audit, tenants, upstream switch, feedback, beta, inspect, dashboard
+  pii/redactor.ts       Nigerian PII detection, token vault, streaming re-hydration, egress mode
+  lib/language.ts       Yoruba / Hausa / Igbo / Pidgin / English detection
+  upstream/registry.ts  hot-swappable, validated, persisted N-ATLAS endpoint
+  dashboard/report.ts   NDPA compliance report     dashboard/beta.ts   beta evidence page
   pii/regions.ts        coarse Nigerian regions for GPS and addresses
   cache/                semantic cache + memory/Redis store
   security/             injection filter, tenants, keys, rate limits, budgets, pseudonyms
@@ -260,7 +336,9 @@ src/
   upstream/client.ts    network-shielded upstream client
   mock/upstream.ts      mock N-ATLAS with a request inspector
   dashboard/index.html  live dashboard + playground
-scripts/                demo.ts · benchmark.ts · create-key.ts
+scripts/                demo.ts · benchmark.ts · natlas-evidence.ts · create-key.ts
+deploy/colab/           notebook serving the official NCAIR1/N-ATLaS on vLLM
+.github/workflows/      CI: typecheck, tests, audit, live smoke test with Redis
 examples/               OpenAI SDK (Node, Python), curl
 test/                   vitest suites
 ```
@@ -270,7 +348,8 @@ test/                   vitest suites
 - PII detection uses patterns and context. It is fast (22 µs) and predictable, but it can miss free-form names without a cue word. Next step: a small on-device NER model for Nigerian names, run in the same pass.
 - The semantic cache uses lexical similarity (words, trigrams and synonyms), not neural embeddings. That keeps it dependency-free and sub-millisecond. Next step: optional multilingual embeddings for Yoruba, Hausa and Igbo paraphrases.
 - The semantic index lives per replica; exact-match entries are shared through Redis.
-- Next: client-side re-hydration SDK (the vault never leaves the device), per-tenant custom redaction rules, and dashboard login.
+- Egress DLP runs on non-streamed answers and cached answers; streamed answers are re-hydrated but not yet scanned for leaks.
+- Next: proxy the official N-ATLAS speech models (`NCAIR1/Yoruba-ASR`, `Hausa-ASR`, `Igbo-ASR`, `NigerianAccentedEnglish`) with PII redaction of transcripts; a client-side re-hydration SDK (the vault never leaves the device); per-tenant custom redaction rules; dashboard login.
 
 ---
 
