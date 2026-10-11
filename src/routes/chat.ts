@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../config.js";
 import type { GatewayContext } from "../context.js";
-import { Vault, redactMessages, rehydrateText, StreamRehydrator, type ChatMessage } from "../pii/redactor.js";
+import { Vault, redactMessages, redactText, rehydrateText, StreamRehydrator, type ChatMessage } from "../pii/redactor.js";
+import { detectLanguage } from "../lib/language.js";
 import { scoreMessages } from "../security/injection.js";
 import { rateLimit, tokensUsedToday, chargeTokens, pseudonymise, type Tenant } from "../security/tenants.js";
 import { cacheKeyParts, type CachedCompletion } from "../cache/semantic-cache.js";
@@ -128,6 +129,13 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
     ctx.stats.addRedactions(vault.counts);
     reply.header("x-natlas-redactions", redactionHeader(vault.counts));
 
+    // Which N-ATLAS language the user wrote in (yo, ha, ig, pcm, en), for routing and analytics.
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const lang = detectLanguage(typeof lastUser?.content === "string" ? lastUser.content : "");
+    audit.language = lang.code;
+    ctx.stats.languages[lang.code] = (ctx.stats.languages[lang.code] ?? 0) + 1;
+    reply.header("x-natlas-language", lang.code);
+
     trace.mark("redact");
 
     // 7. Semantic cache (redacted prompts only).
@@ -222,11 +230,20 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
     const data = (await upstream.json()) as {
       choices?: Array<{ message?: { content?: string | null; tool_calls?: unknown }; finish_reason?: string }>;
       usage?: CachedCompletion["usage"];
+      model?: string;
     };
     const upMs = performance.now() - tUp;
     trace.mark("model");
     const choice = data.choices?.[0];
-    const redactedContent = choice?.message?.content ?? "";
+    // Egress DLP: personal data in the answer that the caller never sent (the model invented or leaked it)
+    // is withheld one-way. The caller's own values are still tokens at this point, so they are untouched.
+    const egress = new Vault("withheld");
+    const redactedContent = redactText(choice?.message?.content ?? "", egress);
+    if (egress.total()) {
+      audit.egressRedactions = egress.counts as Record<string, number>;
+      ctx.stats.addEgress(egress.counts);
+      reply.header("x-natlas-egress-redactions", redactionHeader(egress.counts));
+    }
     const usage = data.usage ?? {
       prompt_tokens: estimateTokens(JSON.stringify(redacted)),
       completion_tokens: estimateTokens(redactedContent),
@@ -248,7 +265,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
     audit.completionTokens = usage.completion_tokens;
     finish(200, "served");
 
-    const meta = { request_id: requestId, cache: cacheable ? "miss" : "bypass", redactions: vault.counts, latency_ms: Math.round(ms), upstream_ms: Math.round(upMs), trace: trace.toJSON(), ...(debug ? { model_saw: redacted } : {}) };
+    const meta = { request_id: requestId, cache: cacheable ? "miss" : "bypass", redactions: vault.counts, latency_ms: Math.round(ms), upstream_ms: Math.round(upMs), upstream_model: data.model, language: lang.code, egress: egress.counts, trace: trace.toJSON(), ...(debug ? { model_saw: redacted } : {}) };
     if (lite) return { id: requestId, content, cache: meta.cache, ms: Math.round(ms) };
     const out = completionBody(requestId, model, content, choice?.finish_reason ?? "stop", usage, meta);
     if (choice?.message?.tool_calls) (out.choices[0]!.message as Record<string, unknown>).tool_calls = choice.message.tool_calls;

@@ -8,7 +8,7 @@ import { writeFileSync } from "node:fs";
 import { Vault, redactText } from "../src/pii/redactor.js";
 
 const GATEWAY = (process.env.GATEWAY_URL ?? "http://127.0.0.1:8080/v1").replace(/\/$/, "");
-const DIRECT = (process.env.UPSTREAM_DIRECT_URL ?? "http://127.0.0.1:9090/v1").replace(/\/$/, "");
+const DIRECT = (process.env.UPSTREAM_DIRECT_URL ?? "http://127.0.0.1:8080/mock/v1").replace(/\/$/, "");
 const KEY = process.env.GATEWAY_KEY ?? "sk-natlas-demo-key";
 const DIRECT_KEY = process.env.UPSTREAM_API_KEY ?? "";
 const MODEL = process.env.UPSTREAM_MODEL ?? "n-atlas-8b";

@@ -14,6 +14,12 @@ export interface Tenant {
   dailyTokenBudget: number;
   /** Never cache this tenant's prompts or answers, and keep no content anywhere. */
   zeroRetention: boolean;
+  /** Sandbox sign-ups: when the key was created, and optional details the tester chose to share. */
+  createdAt?: string;
+  org?: string;
+  contact?: string;
+  /** Tester agreed to be listed on the public beta-evidence page. */
+  listPublicly?: boolean;
 }
 
 export const KEY_PREFIX = "sk-natlas-";
@@ -26,6 +32,8 @@ export function generateKey(): string {
 
 export class TenantRegistry {
   private byHash = new Map<string, Tenant>();
+  private store?: KvStore;
+  private static readonly KEY = "tenants:v1";
 
   constructor(private readonly file: string) {
     this.reload();
@@ -38,13 +46,25 @@ export class TenantRegistry {
     for (const t of list) this.byHash.set(t.keyHash, t);
   }
 
-  add(t: Tenant, persist = true): void {
+  /** Load tenants (including sandbox keys) kept in a durable store, so keys survive restarts. */
+  async attach(store: KvStore): Promise<void> {
+    this.store = store;
+    const raw = await store.getDurable(TenantRegistry.KEY);
+    for (const t of raw ? (JSON.parse(raw) as Tenant[]) : []) this.byHash.set(t.keyHash, t);
+  }
+
+  /** Register a tenant. Non-demo tenants go to the durable store; `toFile` also writes the local tenants file (CLI use). */
+  add(t: Tenant, opts: { toFile?: boolean; durable?: boolean } = {}): Promise<void> {
     this.byHash.set(t.keyHash, t);
-    if (persist) {
+    const persisted = [...this.byHash.values()].filter((x) => !x.id.startsWith("demo"));
+    if (opts.toFile) {
       mkdirSync(dirname(this.file), { recursive: true });
-      const persisted = [...this.byHash.values()].filter((x) => !x.id.startsWith("demo"));
-      writeFileSync(this.file, JSON.stringify(persisted, null, 2));
+      writeFileSync(this.file, JSON.stringify(persisted.filter((x) => !x.id.startsWith("sandbox-")), null, 2));
     }
+    if (opts.durable !== false && this.store && !t.id.startsWith("demo")) {
+      return this.store.setDurable(TenantRegistry.KEY, JSON.stringify(persisted));
+    }
+    return Promise.resolve();
   }
 
   authenticate(key: string): Tenant | undefined {

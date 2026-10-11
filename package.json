@@ -13,7 +13,8 @@
     "bench": "tsx scripts/benchmark.ts",
     "key": "tsx scripts/create-key.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "evidence": "tsx scripts/natlas-evidence.ts"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -29,6 +30,7 @@
     "@types/node": "^22.20.5",
     "openai": "^4.104.0",
     "typescript": "^5.9.3",
-    "vitest": "^2.1.9"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
   }
 }

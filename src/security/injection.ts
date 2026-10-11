@@ -37,7 +37,37 @@ export interface InjectionVerdict {
   matched: string[];
 }
 
-export function scoreText(text: string): InjectionVerdict {
+// Cyrillic and Greek look-alikes commonly swapped in to dodge filters.
+const HOMOGLYPHS: Record<string, string> = {
+  "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x", "і": "i", "ј": "j", "ѕ": "s", "ԁ": "d", "ɡ": "g", "һ": "h", "ӏ": "l",
+  "А": "A", "Е": "E", "О": "O", "Р": "P", "С": "C", "Т": "T", "Х": "X", "І": "I", "Ѕ": "S", "Α": "A", "Ε": "E", "Ι": "I", "Ο": "O", "ο": "o", "ν": "v",
+};
+const LEET: Record<string, string> = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s", "!": "i" };
+
+/**
+ * Undo common evasion tricks before matching: invisible characters, full-width
+ * and look-alike letters, leetspeak ("1gn0re"), spaced or dotted letters
+ * ("i g n o r e", "i.g.n.o.r.e"), and base64-encoded payloads.
+ */
+export function normalizeForScan(text: string): string {
+  // Decode plausible base64 chunks first (later steps would mangle them) and scan their contents too.
+  const decoded: string[] = [];
+  for (const m of text.match(/[A-Za-z0-9+/]{16,}={0,2}/g) ?? []) {
+    try {
+      const d = Buffer.from(m, "base64").toString("utf8");
+      if (/^[\x20-\x7E\s]{8,}$/.test(d)) decoded.push(d);
+    } catch {}
+  }
+  let t = text.normalize("NFKC").replace(/[\u200B-\u200F\u2060\uFEFF\u00AD]/g, "");
+  t = t.replace(/[\u0370-\u03FF\u0400-\u04FF\u0250-\u02AF]/g, (c) => HOMOGLYPHS[c] ?? c);
+  // Leetspeak only inside words that also contain letters, so prices and IDs stay intact.
+  t = t.replace(/\S*[A-Za-z]\S*/g, (w) => w.replace(/[013457@$!]/g, (c, i) => (i === w.length - 1 && c === "!" ? c : LEET[c] ?? c)));
+  // Collapse letters split by single spaces, dots, dashes or underscores: "i g n o r e" -> "ignore".
+  t = t.replace(/\b(?:[A-Za-z][ .\-_*]){3,}[A-Za-z]\b/g, (m) => m.replace(/[ .\-_*]/g, ""));
+  return decoded.length ? `${t}\n${decoded.join("\n")}` : t;
+}
+
+function scoreRaw(text: string): InjectionVerdict {
   let keep = 1;
   const matched: string[] = [];
   for (const r of RULES) {
@@ -47,6 +77,17 @@ export function scoreText(text: string): InjectionVerdict {
     }
   }
   return { score: Math.round((1 - keep) * 100) / 100, matched };
+}
+
+export function scoreText(text: string): InjectionVerdict {
+  const plain = scoreRaw(text);
+  const normalized = normalizeForScan(text);
+  if (normalized === text) return plain;
+  const deob = scoreRaw(normalized);
+  if (deob.score <= plain.score) return plain;
+  // Matching only after de-obfuscation is itself a strong signal of intent.
+  const score = Math.min(1, Math.round((1 - (1 - deob.score) * 0.8) * 100) / 100);
+  return { score, matched: [...new Set([...deob.matched, "obfuscation"])] };
 }
 
 /** Only end-user and tool content is untrusted; the developer's system prompt is not scanned. */

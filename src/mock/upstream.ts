@@ -42,6 +42,10 @@ function compose(prompt: string): string {
   if (p.includes("cac") || p.includes("register") && p.includes("business")) {
     return `To register a business in Nigeria: (1) search and reserve a name on the CAC portal, (2) complete pre-incorporation forms, (3) pay the filing fee, (4) upload ID and signatures, and (5) download your certificate. A Business Name usually takes 1 to 3 working days.${ref}`;
   }
+  // Simulates a model leaking personal data it was never given (exercises egress DLP).
+  if (p.includes("branch manager") || p.includes("leak test")) {
+    return `You can reach the Ikeja branch manager, Mr. Tunde Bakare, directly on 08011112222 or at tunde.bakare@examplebank.ng.${ref}`;
+  }
   if (p.includes("pos") || p.includes("eligible")) {
     const place = prompt.match(/\[(?:GPS|ADDRESS)_\d+:([^\]]+)\]/)?.[1];
     return `Yes, likely eligible. To issue a POS terminal, the bank confirms identity with the BVN, checks that the phone and email are reachable, and verifies that the shop location${place ? ` (${place})` : ""} matches the registered business address. Under CBN agent banking rules, the terminal must then stay within its registered location.${ref}`;
@@ -60,7 +64,13 @@ app.get("/v1/models", async () => ({
   data: [{ id: "n-atlas-8b", object: "model", owned_by: "ncair-mock" }],
 }));
 
-app.get("/_inspect/last", async () => last ?? { note: "no requests yet" });
+// Shows exactly what the model received. Locked behind ADMIN_TOKEN when one is set.
+app.get("/_inspect/last", async (req, reply) => {
+  const token = process.env.ADMIN_TOKEN;
+  const given = (req.headers.authorization ?? "").replace(/^Bearers+/i, "") || (req.query as { token?: string }).token;
+  if (token && given !== token) return reply.code(401).send({ error: { message: "Admin token required" } });
+  return last ?? { note: "no requests yet" };
+});
 app.get("/health", async () => ({ ok: true, served }));
 
 app.post("/v1/chat/completions", async (req, reply) => {

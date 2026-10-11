@@ -90,3 +90,22 @@ describe("person names", () => {
     }
   });
 });
+
+describe("more Nigerian identifiers", () => {
+  it("catches passport, licence, plate, TIN and voter VIN", () => {
+    const { out, v } = redact("Passport A12345678, licence ABC12345AA01, plate LND-123AB, TIN 12345678-0001, voter VIN 90F5 B04F 2F29 5462 344");
+    expect(out).toBe("Passport [PASSPORT_1], licence [LICENCE_1], plate [PLATE_1], TIN [TIN_1], voter VIN [VIN_1]");
+    expect(v.total()).toBe(5);
+  });
+
+  it("treats an unlabelled 11-digit number with the 22 BVN prefix as a BVN", () => {
+    expect(redact("ref 22198765432").out).toBe("ref [BVN_1]");
+    expect(redact("ref 31198765432").out).toBe("ref [ID_1]");
+  });
+
+  it("withholds one-way in egress mode", () => {
+    const v = new Vault("withheld");
+    expect(redactText("Call 08099998888", v)).toBe("Call [withheld phone]");
+    expect(rehydrateText("Call [withheld phone]", v)).toBe("Call [withheld phone]");
+  });
+});

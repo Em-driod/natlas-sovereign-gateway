@@ -4,6 +4,7 @@ import { SemanticCache } from "./cache/semantic-cache.js";
 import { TenantRegistry, hashKey } from "./security/tenants.js";
 import { AuditLog } from "./audit/audit-log.js";
 import { Stats } from "./lib/stats.js";
+import { loadUpstream } from "./upstream/registry.js";
 
 export interface GatewayContext {
   store: KvStore;
@@ -11,7 +12,12 @@ export interface GatewayContext {
   tenants: TenantRegistry;
   audit: AuditLog;
   stats: Stats;
+  /** Persist stats now (also runs on an interval and at shutdown). */
+  saveStats(): Promise<void>;
+  stop(): void;
 }
+
+const STATS_KEY = "stats:v1";
 
 export async function createContext(): Promise<GatewayContext> {
   const store = await createStore(config.redisUrl, config.cache.maxEntries);
@@ -21,14 +27,28 @@ export async function createContext(): Promise<GatewayContext> {
     threshold: config.cache.semanticThreshold,
     maxEntries: config.cache.maxEntries,
   });
-  const tenants = new TenantRegistry(config.tenantsFile);
 
+  // An upstream chosen at runtime (POST /admin/upstream) overrides the environment.
+  await loadUpstream(store);
+
+  const tenants = new TenantRegistry(config.tenantsFile);
+  await tenants.attach(store);
   // Demo tenants for local runs and judging; disable with DEMO_API_KEY="" in production.
   const demoKey = process.env.DEMO_API_KEY ?? "sk-natlas-demo-key";
   if (demoKey) {
-    tenants.add({ id: "demo", name: "Demo Fintech Ltd", keyHash: hashKey(demoKey), rpm: 120, dailyTokenBudget: 2_000_000, zeroRetention: false }, false);
-    tenants.add({ id: "demo-zero-retention", name: "Demo Hospital (zero-retention)", keyHash: hashKey(`${demoKey}-zr`), rpm: 60, dailyTokenBudget: 500_000, zeroRetention: true }, false);
+    await tenants.add({ id: "demo", name: "Demo Fintech Ltd", keyHash: hashKey(demoKey), rpm: 120, dailyTokenBudget: 2_000_000, zeroRetention: false }, { durable: false });
+    await tenants.add({ id: "demo-zero-retention", name: "Demo Hospital (zero-retention)", keyHash: hashKey(`${demoKey}-zr`), rpm: 60, dailyTokenBudget: 500_000, zeroRetention: true }, { durable: false });
   }
 
-  return { store, cache, tenants, audit: new AuditLog(config.auditFile), stats: new Stats() };
+  const audit = await new AuditLog(config.auditFile, store).init();
+
+  // Dashboard counters survive restarts and redeploys when a durable store is configured.
+  const stats = new Stats();
+  const saved = await store.getDurable(STATS_KEY).catch(() => null);
+  if (saved) stats.restore(JSON.parse(saved));
+  const saveStats = () => store.setDurable(STATS_KEY, JSON.stringify(stats.toJSON())).catch(() => undefined);
+  const timer = setInterval(saveStats, 10_000);
+  timer.unref();
+
+  return { store, cache, tenants, audit, stats, saveStats, stop: () => clearInterval(timer) };
 }

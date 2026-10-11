@@ -26,12 +26,16 @@ export const config = {
   port: num("PORT", 8080),
   // "::" is dual-stack: accepts IPv4 and IPv6 (some hosts health-check over IPv6).
   host: env("BIND_HOST", "::"),
+  /** Reverse proxies in front of the gateway (Render: 1). Only that many X-Forwarded-For hops are trusted, so clients cannot spoof their IP. */
+  trustProxyHops: num("TRUST_PROXY_HOPS", 0),
 
   /** Any OpenAI-compatible N-ATLAS server: vLLM, Ollama, Featherless, HF TGI, or the bundled mock. */
   upstreamUrl: env("UPSTREAM_URL", "http://127.0.0.1:9090/v1").replace(/\/$/, ""),
   upstreamApiKey: env("UPSTREAM_API_KEY", ""),
   /** Model name the upstream expects. Clients send "n-atlas-8b"; we map it. */
   upstreamModel: env("UPSTREAM_MODEL", "n-atlas-8b"),
+  /** Human-readable name of the upstream shown on the dashboard (e.g. "NCAIR1/N-ATLaS on vLLM"). */
+  upstreamLabel: env("UPSTREAM_LABEL", ""),
   upstreamTimeoutMs: num("UPSTREAM_TIMEOUT_MS", 60_000),
 
   redisUrl: env("REDIS_URL", ""),

@@ -1,8 +1,10 @@
 import { regionForAddress, regionForPoint } from "./regions.js";
 
-export type PiiType = "BVN" | "NIN" | "PHONE" | "EMAIL" | "CARD" | "ACCOUNT" | "GPS" | "ADDRESS" | "ID" | "NAME";
+export type PiiType =
+  | "BVN" | "NIN" | "PHONE" | "EMAIL" | "CARD" | "ACCOUNT" | "GPS" | "ADDRESS" | "ID" | "NAME"
+  | "PASSPORT" | "TIN" | "VIN" | "LICENCE" | "PLATE";
 
-export const PII_TYPES: PiiType[] = ["BVN", "NIN", "PHONE", "EMAIL", "CARD", "ACCOUNT", "GPS", "ADDRESS", "ID", "NAME"];
+export const PII_TYPES: PiiType[] = ["BVN", "NIN", "PHONE", "EMAIL", "CARD", "ACCOUNT", "GPS", "ADDRESS", "ID", "NAME", "PASSPORT", "TIN", "VIN", "LICENCE", "PLATE"];
 
 /**
  * Per-request token vault. Lives only in memory for the duration of one request,
@@ -15,6 +17,12 @@ export class Vault {
   private counters = new Map<PiiType, number>();
   readonly counts: Partial<Record<PiiType, number>> = {};
 
+  /**
+   * "restorable" (default): typed tokens like [NIN_1] that are swapped back in the response.
+   * "withheld": one-way labels like [withheld phone], used on model output (egress DLP).
+   */
+  constructor(private readonly mode: "restorable" | "withheld" = "restorable") {}
+
   tokenFor(type: PiiType, value: string, hint?: string): string {
     const key = `${type}\u0000${value}`;
     const existing = this.byValue.get(key);
@@ -23,7 +31,7 @@ export class Vault {
     this.counters.set(type, n);
     this.counts[type] = (this.counts[type] ?? 0) + 1;
     const id = `${type}_${n}`;
-    const token = hint ? `[${id}:${hint}]` : `[${id}]`;
+    const token = this.mode === "withheld" ? `[withheld ${type.toLowerCase()}]` : hint ? `[${id}:${hint}]` : `[${id}]`;
     this.byValue.set(key, token);
     this.byToken.set(id, value);
     return token;
@@ -139,6 +147,37 @@ const DETECTORS: Detector[] = [
       return { start: m.index, end: m.index + m[0].length, type: "CARD", value: m[0] };
     }),
 
+  // Driver's licence (FRSC): ABC12345AA01.
+  (t) =>
+    all(/\b[A-Z]{3}[-\s]?\d{5}[A-Z]{2}\d{2}\b/g, t, (m) => ({ start: m.index, end: m.index + m[0].length, type: "LICENCE", value: m[0] })),
+
+  // Voter's card (PVC) VIN: 19 characters, with a voter cue nearby.
+  (t) =>
+    all(/\b[0-9A-Z]{4}\s?[0-9A-Z]{4}\s?[0-9A-Z]{4}\s?[0-9A-Z]{4}\s?[0-9A-Z]{3}\b/g, t, (m) => {
+      if (!/\d/.test(m[0]) || !/[A-Z]/.test(m[0]) || m[0].replace(/\s/g, "").length !== 19) return null;
+      if (!/\bvin\b|voter|\bpvc\b|inec/.test(before(t, m.index, 40))) return null;
+      return { start: m.index, end: m.index + m[0].length, type: "VIN", value: m[0] };
+    }),
+
+  // Nigerian passport: A12345678 (letter + 8 digits).
+  (t) =>
+    all(/\b[A-Z]\d{8}\b/g, t, (m) => {
+      if (!/^[ABDP]/.test(m[0]) && !/passport/.test(before(t, m.index, 40))) return null;
+      return { start: m.index, end: m.index + m[0].length, type: "PASSPORT", value: m[0] };
+    }),
+
+  // Tax ID (FIRS/JTB): 12345678-0001, or a 10-digit TIN with a tax cue.
+  (t) =>
+    all(/(?<!\d)\d{8}-\d{4}(?!\d)|(?<!\d)\d{10}(?!\d)/g, t, (m) => {
+      const ctx = before(t, m.index, 40).replace(/^[\s\S]*\d/, "");
+      if (m[0].length === 10 && !/\btin\b|tax id|taxpayer|\bfirs\b|\bjtb\b/.test(ctx)) return null;
+      return { start: m.index, end: m.index + m[0].length, type: "TIN", value: m[0] };
+    }),
+
+  // Vehicle plate: ABC-123DE / LND 123 AB.
+  (t) =>
+    all(/\b[A-Z]{3}[-\s]?\d{3}[-\s]?[A-Z]{2}\b/g, t, (m) => ({ start: m.index, end: m.index + m[0].length, type: "PLATE", value: m[0] })),
+
   // 11-digit identifiers: BVN or NIN from context, else a generic ID.
   (t) =>
     all(/(?<!\d)\d{3}[\s-]?\d{4}[\s-]?\d{4}(?!\d)|(?<!\d)\d{11}(?!\d)/g, t, (m) => {
@@ -149,7 +188,11 @@ const DETECTORS: Detector[] = [
         ? "BVN"
         : /\bnin\b|\bnimc\b|national id|identification number|\bnin slip/.test(ctx)
           ? "NIN"
-          : "ID";
+          : /\btin\b|tax id|taxpayer/.test(ctx)
+            ? "TIN"
+            : m[0].replace(/\D/g, "").startsWith("22") // every BVN issued so far begins with 22
+              ? "BVN"
+              : "ID";
       return { start: m.index, end: m.index + m[0].length, type, value: m[0] };
     }),
 

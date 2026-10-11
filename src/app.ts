@@ -13,7 +13,8 @@ export async function buildApp(ctx: GatewayContext, opts: { logger?: boolean } =
       redact: ["req.headers.authorization", "req.headers.cookie", "req.body"],
     },
     bodyLimit: config.security.maxBodyBytes,
-    trustProxy: true,
+    // Trust exactly the configured number of proxy hops; trusting all would let clients spoof X-Forwarded-For.
+    trustProxy: config.trustProxyHops > 0 ? (_addr: string, hop: number) => hop < config.trustProxyHops : false,
   });
 
   // Mobile-first compression: brotli/gzip for JSON responses (SSE streams bypass this via hijack).

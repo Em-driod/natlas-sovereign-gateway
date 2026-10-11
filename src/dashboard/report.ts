@@ -10,9 +10,9 @@ const PII_LABELS: Record<string, string> = {
 };
 
 /** Printable NDPA compliance report built from the hash-chained audit trail. */
-export function complianceReportHtml(audit: AuditLog, host: string): string {
-  const s = audit.summarize();
-  const v = audit.verify();
+export async function complianceReportHtml(audit: AuditLog, host: string): Promise<string> {
+  const s = await audit.summarize();
+  const v = await audit.verify();
   const totalPii = Object.values(s.redactions).reduce((a, b) => a + b, 0);
   const blocked = s.outcomes.blocked_injection ?? 0;
   const generated = new Date();

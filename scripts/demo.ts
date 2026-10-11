@@ -57,7 +57,8 @@ await chat(`Hello from an internal bank server (${run})`, {
   user: "adaeze.okafor@gmail.com",
 });
 try {
-  const last = (await (await fetch(MOCK_INSPECT)).json()) as any;
+  const adminHeaders: Record<string, string> = process.env.ADMIN_TOKEN ? { authorization: `Bearer ${process.env.ADMIN_TOKEN}` } : {};
+  const last = (await (await fetch(MOCK_INSPECT, { headers: adminHeaders })).json()) as any;
   console.log(`  Client sent X-Forwarded-For 10.20.30.40, a session cookie and user=adaeze.okafor@gmail.com`);
   console.log(`  Upstream received headers: ${c.g(Object.keys(last.headers).join(", "))}`);
   console.log(`  Upstream saw user as:      ${c.g(last.body.user)}  (HMAC pseudonym)`);

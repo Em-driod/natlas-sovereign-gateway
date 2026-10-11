@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { createContext } from "./context.js";
 import { buildApp } from "./app.js";
+import { currentUpstream } from "./upstream/registry.js";
 
 const ctx = await createContext();
 const app = await buildApp(ctx);
@@ -18,7 +19,7 @@ console.log(`
   -------------------------
   Gateway    http://localhost:${config.port}/v1
   Dashboard  http://localhost:${config.port}/
-  Upstream   ${config.upstreamUrl}  (model: ${config.upstreamModel})
+  Upstream   ${currentUpstream().url}  (model: ${config.upstreamModel}, ${currentUpstream().mode})
   Store      ${ctx.store.kind}${config.cache.enabled ? `, semantic cache on (threshold ${config.cache.semanticThreshold})` : ", cache off"}
   Injection  ${config.security.injectionMode} at score >= ${config.security.injectionThreshold}
   Demo key   ${process.env.DEMO_API_KEY ?? "sk-natlas-demo-key"}
@@ -26,6 +27,9 @@ console.log(`
 
 const shutdown = async () => {
   await app.close();
+  await ctx.saveStats();
+  await ctx.audit.flush();
+  ctx.stop();
   await ctx.store.close();
   process.exit(0);
 };
