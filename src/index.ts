@@ -10,7 +10,8 @@ if (/^(1|true|yes)$/i.test(process.env.MOCK_UPSTREAM ?? "")) {
 const ctx = await createContext();
 const app = await buildApp(ctx);
 
-await app.listen({ port: config.port, host: config.host });
+const address = await app.listen({ port: config.port, host: config.host });
+console.log(`[gateway] bound to ${address} (HOST env: ${process.env.HOST ?? "unset"})`);
 
 console.log(`
   N-ATLAS Sovereign Gateway
