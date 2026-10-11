@@ -4,9 +4,8 @@
  * and records exactly what it received at GET /_inspect/last, so you can prove
  * that no PII and no client network details ever reached the model.
  */
-import Fastify from "fastify";
+import type { FastifyInstance } from "fastify";
 
-const PORT = Number(process.env.MOCK_PORT ?? 9090);
 const BASE_LATENCY = Number(process.env.MOCK_LATENCY_MS ?? 1400);
 const JITTER = Number(process.env.MOCK_JITTER_MS ?? 300);
 
@@ -45,7 +44,8 @@ function compose(prompt: string): string {
   return `Thank you for your question. As N-ATLAS, Nigeria's multilingual model, here is a concise answer: ${prompt.slice(0, 120).replace(/\s+/g, " ")}... I can also respond in Yoruba, Hausa, Igbo or Pidgin if you prefer.${ref}`;
 }
 
-const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
+/** Mock routes; mounted under /mock on the gateway in demo mode, or served alone by mock/server.ts. */
+export async function mockRoutes(app: FastifyInstance) {
 
 app.get("/v1/models", async () => ({
   object: "list",
@@ -105,7 +105,4 @@ app.post("/v1/chat/completions", async (req, reply) => {
   res.write("data: [DONE]\n\n");
   res.end();
 });
-
-app.listen({ port: PORT, host: "127.0.0.1" }).then(() => {
-  console.log(`[mock N-ATLAS] listening on http://127.0.0.1:${PORT}/v1  (latency ~${BASE_LATENCY}ms)`);
-});
+}

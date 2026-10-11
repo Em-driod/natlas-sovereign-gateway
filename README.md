@@ -153,6 +153,7 @@ npm start          # gateway + built-in mock N-ATLAS, one process
 ```
 
 - **Dashboard and playground:** http://localhost:8080. Pick a preset and click *Send* to see **what you sent → what N-ATLAS saw → what you got back**, along with live cache, latency and audit panels.
+- **Mock N-ATLAS** is mounted at `/mock/v1` on the same port in this mode (`npm run mock` runs it standalone on :9090).
 - **Narrated terminal demo:** in a second terminal, run `npm run demo`.
 - **Benchmark:** `npm run bench`, which writes `bench-results.md`.
 - **Tests:** `npm test` (20 tests covering redaction, re-hydration, the cache, injection and audit tampering).

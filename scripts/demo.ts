@@ -5,7 +5,8 @@
 const GATEWAY = (process.env.GATEWAY_URL ?? "http://127.0.0.1:8080/v1").replace(/\/$/, "");
 const ROOT = GATEWAY.replace(/\/v1$/, "");
 const KEY = process.env.GATEWAY_KEY ?? "sk-natlas-demo-key";
-const MOCK_INSPECT = process.env.MOCK_INSPECT_URL ?? "http://127.0.0.1:9090/_inspect/last";
+// Demo mode mounts the mock at /mock on the gateway; a standalone mock listens on :9090.
+const MOCK_INSPECT = process.env.MOCK_INSPECT_URL ?? `${ROOT}/mock/_inspect/last`;
 const PAUSE = Number(process.env.DEMO_PAUSE_MS ?? 900);
 
 const c = {

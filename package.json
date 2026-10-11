@@ -8,7 +8,7 @@
     "start": "tsx src/demo-server.ts",
     "start:gateway": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "mock": "tsx src/mock/upstream.ts",
+    "mock": "tsx src/mock/server.ts",
     "demo": "tsx scripts/demo.ts",
     "bench": "tsx scripts/benchmark.ts",
     "key": "tsx scripts/create-key.ts",
