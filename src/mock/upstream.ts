@@ -27,7 +27,11 @@ function textOf(messages: Array<{ role: string; content: unknown }>): string {
 function compose(prompt: string): string {
   const p = prompt.toLowerCase();
   const tokens = [...new Set(prompt.match(/\[[A-Z]+_\d+(?::[^\]]+)?\]/g) ?? [])];
-  const ref = tokens.length ? ` I have noted the reference ${tokens.join(", ")} for this request.` : "";
+  // Refer back to at most two identifiers, the way a real assistant would.
+  const who = tokens.find((t) => t.startsWith("[NAME_")) ?? tokens[0];
+  const idTok = tokens.find((t) => /^\[(BVN|NIN)_/.test(t));
+  const refs = [...new Set([who, idTok].filter(Boolean))];
+  const ref = refs.length ? ` (Reference: ${refs.join(", ")}.)` : "";
 
   if (p.includes("pidgin")) {
     return `Okay, make I explain am for Pidgin. For loan, the bank go first check your BVN and NIN to confirm say na you, then dem go look your account history and how you dey pay back. If everything correct, dem fit approve am within few days. Interest dey depend on the bank and the type of loan.${ref}`;
@@ -38,10 +42,14 @@ function compose(prompt: string): string {
   if (p.includes("cac") || p.includes("register") && p.includes("business")) {
     return `To register a business in Nigeria: (1) search and reserve a name on the CAC portal, (2) complete pre-incorporation forms, (3) pay the filing fee, (4) upload ID and signatures, and (5) download your certificate. A Business Name usually takes 1 to 3 working days.${ref}`;
   }
+  if (p.includes("pos") || p.includes("eligible")) {
+    const place = prompt.match(/\[(?:GPS|ADDRESS)_\d+:([^\]]+)\]/)?.[1];
+    return `Yes, likely eligible. To issue a POS terminal, the bank confirms identity with the BVN, checks that the phone and email are reachable, and verifies that the shop location${place ? ` (${place})` : ""} matches the registered business address. Under CBN agent banking rules, the terminal must then stay within its registered location.${ref}`;
+  }
   if (p.includes("loan")) {
     return `Most Nigerian lenders follow CBN guidelines: identity is confirmed with BVN and NIN, affordability is assessed from account statements, and the offer letter must state the full cost of credit. Customers can repay early, and complaints go first to the lender, then to the CBN Consumer Protection Department.${ref}`;
   }
-  return `Thank you for your question. As N-ATLAS, Nigeria's multilingual model, here is a concise answer: ${prompt.slice(0, 120).replace(/\s+/g, " ")}... I can also respond in Yoruba, Hausa, Igbo or Pidgin if you prefer.${ref}`;
+  return `Thank you for your question. I am N-ATLAS, Nigeria's multilingual model. Here is a short answer based on current Nigerian guidance, and I can also reply in Yoruba, Hausa, Igbo or Pidgin if you prefer.${ref}`;
 }
 
 /** Mock routes; mounted under /mock on the gateway in demo mode, or served alone by mock/server.ts. */

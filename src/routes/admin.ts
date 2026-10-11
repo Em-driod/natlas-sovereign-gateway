@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../config.js";
 import type { GatewayContext } from "../context.js";
-import { generateKey, hashKey } from "../security/tenants.js";
+import { generateKey, hashKey, rateLimit } from "../security/tenants.js";
 import { Vault, redactText } from "../pii/redactor.js";
 import { scoreText } from "../security/injection.js";
 import { dashboardHtml } from "../dashboard/page.js";
+import { complianceReportHtml } from "../dashboard/report.js";
 
 function requireAdmin(req: FastifyRequest, reply: FastifyReply): boolean {
   if (!config.adminToken) return true; // open in local dev
@@ -51,6 +52,24 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: GatewayContext) {
     const id = b.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32) + "-" + Date.now().toString(36);
     ctx.tenants.add({ id, name: b.name, keyHash: hashKey(key), rpm: b.rpm ?? 60, dailyTokenBudget: b.dailyTokenBudget ?? 500_000, zeroRetention: !!b.zeroRetention });
     return reply.code(201).send({ id, apiKey: key, note: "Shown once. Store it securely; the gateway keeps only its hash." });
+  });
+
+  // Printable NDPA report. Aggregates only, so it is as public as /admin/stats.
+  app.get("/admin/report", async (req, reply) =>
+    reply.type("text/html; charset=utf-8").send(complianceReportHtml(ctx.audit, req.headers.host ?? "gateway"))
+  );
+
+  // Self-serve sandbox keys for developers trying the gateway: low limits, and a few keys per IP per hour.
+  app.post("/v1/gateway/keys", async (req, reply) => {
+    const rl = await rateLimit(ctx.store, `signup:${req.ip}`, 5, 3600);
+    if (!rl.allowed) return reply.code(429).send({ error: { message: "Too many keys created from this network. Try again later.", type: "rate_limit_error" } });
+    const raw = String((req.body as { name?: string })?.name ?? "").trim().slice(0, 60);
+    const name = raw || "Sandbox developer";
+    const key = generateKey();
+    const id = "sandbox-" + (name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "dev") + "-" + Date.now().toString(36);
+    const tenant = { id, name, keyHash: hashKey(key), rpm: 30, dailyTokenBudget: 100_000, zeroRetention: false };
+    ctx.tenants.add(tenant, false);
+    return reply.code(201).send({ id, name, apiKey: key, rpm: tenant.rpm, dailyTokenBudget: tenant.dailyTokenBudget, note: "Sandbox key, shown once. The gateway stores only its hash." });
   });
 
   // Inspect redaction and injection scoring without calling the model (handy for demos and tests).

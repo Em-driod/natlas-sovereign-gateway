@@ -69,6 +69,46 @@ export class AuditLog {
     return this.recent.slice(-n).reverse();
   }
 
+  /** Aggregate the whole trail for the compliance report (counts only, like the log itself). */
+  summarize() {
+    const lines = existsSync(this.file) ? readFileSync(this.file, "utf8").trim().split("\n").filter(Boolean) : [];
+    const s = {
+      records: lines.length,
+      from: "",
+      to: "",
+      outcomes: {} as Record<string, number>,
+      redactions: {} as Record<string, number>,
+      injectionRules: {} as Record<string, number>,
+      tenants: new Set<string>(),
+      zeroRetentionRequests: 0,
+      requestsWithPii: 0,
+      cacheHits: 0,
+      cacheLookups: 0,
+      upstreamCalls: 0,
+      lastHash: "",
+    };
+    for (const l of lines) {
+      const r = JSON.parse(l) as AuditRecord;
+      s.from ||= r.ts;
+      s.to = r.ts;
+      s.lastHash = r.hash;
+      s.outcomes[r.outcome] = (s.outcomes[r.outcome] ?? 0) + 1;
+      let pii = 0;
+      for (const [k, v] of Object.entries(r.redactions ?? {})) {
+        s.redactions[k] = (s.redactions[k] ?? 0) + v;
+        pii += v;
+      }
+      if (pii) s.requestsWithPii++;
+      for (const rule of r.injectionRules ?? []) if (r.outcome === "blocked_injection") s.injectionRules[rule] = (s.injectionRules[rule] ?? 0) + 1;
+      if (r.tenantId && r.tenantId !== "unknown") s.tenants.add(r.tenantId);
+      if (r.zeroRetention) s.zeroRetentionRequests++;
+      if (r.cache === "exact" || r.cache === "semantic") s.cacheHits++;
+      if (r.cache !== "bypass" && (r.outcome === "served" || r.outcome === "cache_hit")) s.cacheLookups++;
+      if (r.upstreamMs !== undefined) s.upstreamCalls++;
+    }
+    return { ...s, tenants: [...s.tenants] };
+  }
+
   /** Re-walk the whole file and confirm no line was edited, removed or reordered. */
   verify(): { ok: boolean; records: number; brokenAt?: number } {
     if (!existsSync(this.file)) return { ok: true, records: 0 };

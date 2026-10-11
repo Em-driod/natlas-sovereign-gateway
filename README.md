@@ -30,6 +30,17 @@ client.chat.completions.create(
 # The app gets:   the answer, with 12345678901 restored wherever the model referred to [NIN_1].
 ```
 
+## The dashboard
+
+Open the gateway root (`/`) for a white-and-green console with four tabs:
+
+- **Playground with Request X-ray.** Send a scenario and watch it move through all seven stages (authenticate, rate limit, injection scan, PII redaction, semantic cache, N-ATLAS, restore values) with the **real time spent in each**, from the `x-natlas-trace` header. Three panes show what you sent, what N-ATLAS saw, and what came back. A blocked jailbreak turns the pipeline red at the stage that stopped it.
+- **Traffic.** Cache against N-ATLAS latency, personal data withheld by type, and the live audit trail with its chain status.
+- **Compliance.** One click produces a printable **NDPA compliance report** (`/admin/report`) built from the hash-chained audit trail: personal data withheld by category, attacks blocked by rule, outcomes, zero-retention usage, chain verification, and controls mapped to NDPA 2023 principles. It holds counts only.
+- **Developers.** Create a **self-serve sandbox key** (30 requests a minute, 100k tokens a day, at most 5 keys per IP per hour) and copy a ready Python, Node or curl snippet with your key and base URL filled in.
+
+Demo links: `/?run=kyc`, `/?run=pcg` (Pidgin jailbreak), `/?run=sem` (semantic cache), `/?tab=comply`.
+
 ---
 
 ## Results
@@ -193,6 +204,8 @@ The gateway is OpenAI-compatible. Anything that speaks the Chat Completions API 
 |---|---|---|
 | `POST` | `/v1/chat/completions` | Streaming and non-streaming. Needs `Authorization: Bearer sk-natlas-…`. |
 | `GET` | `/v1/models` | Lists `n-atlas-8b`. |
+| `POST` | `/v1/gateway/keys` | `{name}` → a sandbox API key (shown once). Limited per IP. |
+| `GET` | `/admin/report` | Printable NDPA compliance report built from the audit trail. |
 | `POST` | `/v1/gateway/inspect` | `{text}` → redacted text, redaction counts and injection score, without calling the model. |
 | `GET` | `/admin/stats` | Aggregate metrics only (used by the dashboard). |
 | `GET` | `/admin/audit?n=50` · `/admin/audit/verify` | Audit tail and chain verification. Needs `ADMIN_TOKEN` when set. |
@@ -208,7 +221,7 @@ The gateway is OpenAI-compatible. Anything that speaks the Chat Completions API 
 | `x-natlas-lite: 1` | Minimal response body for low-bandwidth clients. |
 | `x-natlas-debug: 1` | Include `natlas.model_saw` (the redacted prompt the model received) in the response. |
 
-**Response headers:** `x-natlas-cache` (`HIT-EXACT` / `HIT-SEMANTIC` / `MISS` / `BYPASS`), `x-natlas-similarity`, `x-natlas-redactions` (e.g. `NIN=1,PHONE=1`), `x-natlas-latency-ms`, `x-natlas-upstream-ms`, `x-natlas-injection-score`, `x-natlas-budget-remaining`, `x-ratelimit-*`, `x-request-id`.
+**Response headers:** `x-natlas-trace` (time per pipeline stage, e.g. `auth=0.11;limits=0.24;scan=0.07;redact=0.70;cache=0.38;model=1630;rehydrate=0.42`), `x-natlas-cache` (`HIT-EXACT` / `HIT-SEMANTIC` / `MISS` / `BYPASS`), `x-natlas-similarity`, `x-natlas-redactions` (e.g. `NIN=1,PHONE=1`), `x-natlas-latency-ms`, `x-natlas-upstream-ms`, `x-natlas-injection-score`, `x-natlas-budget-remaining`, `x-ratelimit-*`, `x-request-id`.
 
 Errors use the OpenAI error format: `401 invalid_api_key`, `400 prompt_injection_detected`, `429 rate_limit_exceeded`, `429 budget_exceeded`, `502 upstream_unavailable`.
 

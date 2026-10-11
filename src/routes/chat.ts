@@ -9,6 +9,23 @@ import { cacheKeyParts, type CachedCompletion } from "../cache/semantic-cache.js
 import { buildUpstreamBody, callUpstream } from "../upstream/client.js";
 import type { AuditEvent } from "../audit/audit-log.js";
 
+/** Time spent in each pipeline stage, in milliseconds. */
+export class Trace {
+  private last = performance.now();
+  readonly stages: Array<[string, number]> = [];
+  mark(stage: string) {
+    const now = performance.now();
+    this.stages.push([stage, now - this.last]);
+    this.last = now;
+  }
+  header(): string {
+    return this.stages.map(([s, ms]) => `${s}=${ms.toFixed(3)}`).join(";");
+  }
+  toJSON(): Record<string, number> {
+    return Object.fromEntries(this.stages.map(([s, ms]) => [s, Math.round(ms * 1000) / 1000]));
+  }
+}
+
 const ANON: Tenant = { id: "anonymous", name: "Anonymous (demo)", keyHash: "", rpm: 60, dailyTokenBudget: 200_000, zeroRetention: false };
 
 function openAiError(reply: FastifyReply, status: number, code: string, message: string, type = "invalid_request_error") {
@@ -44,6 +61,10 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
     };
     ctx.stats.requests++;
 
+    // Per-stage timings for the dashboard X-ray, sent as x-natlas-trace (see app.ts onSend and sseHead).
+    const trace = new Trace();
+    (req as FastifyRequest & { natlasTrace?: Trace }).natlasTrace = trace;
+
     // 1. Authenticate the tenant.
     const auth = req.headers.authorization ?? "";
     const key = auth.replace(/^Bearer\s+/i, "").trim();
@@ -54,6 +75,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
       return openAiError(reply, 401, "invalid_api_key", "Missing or invalid gateway API key. Use a key that starts with sk-natlas-.", "authentication_error");
     }
     audit.tenantId = tenant.id;
+    trace.mark("auth");
     audit.zeroRetention = tenant.zeroRetention || req.headers["x-natlas-zero-retention"] === "1";
 
     // 2. Rate limits: per client IP (DDoS shield) and per tenant.
@@ -77,6 +99,8 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
       return openAiError(reply, 429, "budget_exceeded", `Daily token budget of ${tenant.dailyTokenBudget} reached. It resets at 00:00 UTC.`, "insufficient_quota");
     }
 
+    trace.mark("limits");
+
     // 4. Validate.
     const messages = body.messages as ChatMessage[] | undefined;
     if (!Array.isArray(messages) || messages.length === 0 || messages.some((m) => !m || typeof m.role !== "string")) {
@@ -95,12 +119,16 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
       return openAiError(reply, 400, "prompt_injection_detected", `Request blocked by the N-ATLAS gateway: possible prompt injection (${verdict.matched.join(", ")}).`);
     }
 
+    trace.mark("scan");
+
     // 6. Redact Nigerian PII. The vault lives only for this request.
     const vault = new Vault();
     const redacted = redactMessages(messages, vault);
     audit.redactions = vault.counts as Record<string, number>;
     ctx.stats.addRedactions(vault.counts);
     reply.header("x-natlas-redactions", redactionHeader(vault.counts));
+
+    trace.mark("redact");
 
     // 7. Semantic cache (redacted prompts only).
     const temperature = typeof body.temperature === "number" ? body.temperature : 0.7;
@@ -120,12 +148,14 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
       audit.cache = "bypass";
     } else {
       const found = await ctx.cache.lookup(parts, namespace);
+      trace.mark("cache");
       if (found.hit && found.entry) {
         const entry = found.entry;
         audit.cache = found.hit;
         found.hit === "exact" ? ctx.stats.cacheExact++ : ctx.stats.cacheSemantic++;
         ctx.stats.tokensSaved += entry.usage.total_tokens;
         const content = rehydrateText(entry.content, vault);
+        trace.mark("rehydrate");
         const ms = performance.now() - t0;
         ctx.stats.cachedLatency.add(ms);
         reply.header("x-natlas-cache", `HIT-${found.hit.toUpperCase()}`);
@@ -133,7 +163,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
         reply.header("x-natlas-latency-ms", Math.round(ms));
         audit.completionTokens = 0;
         finish(200, "cache_hit");
-        const meta = { request_id: requestId, cache: found.hit, similarity: found.similarity, redactions: vault.counts, latency_ms: Math.round(ms), ...(debug ? { model_saw: redacted } : {}) };
+        const meta = { request_id: requestId, cache: found.hit, similarity: found.similarity, redactions: vault.counts, latency_ms: Math.round(ms), trace: trace.toJSON(), ...(debug ? { model_saw: redacted } : {}) };
         if (stream) return sendCachedStream(reply, requestId, model, content, meta);
         if (lite) return { id: requestId, content, cache: found.hit, ms: Math.round(ms) };
         return completionBody(requestId, model, content, entry.finishReason, { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, meta);
@@ -142,6 +172,8 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
       ctx.stats.cacheMiss++;
     }
     reply.header("x-natlas-cache", cacheable ? "MISS" : "BYPASS");
+
+    if (!cacheable) trace.mark("cache");
 
     // 8. Forward to N-ATLAS, shielded.
     const user = typeof body.user === "string" ? pseudonymise(config.pseudonymSecret, `${tenant.id}:${body.user}`) : undefined;
@@ -192,6 +224,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
       usage?: CachedCompletion["usage"];
     };
     const upMs = performance.now() - tUp;
+    trace.mark("model");
     const choice = data.choices?.[0];
     const redactedContent = choice?.message?.content ?? "";
     const usage = data.usage ?? {
@@ -205,6 +238,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
     await store(redactedContent, choice?.finish_reason ?? "stop", usage);
 
     const content = rehydrateText(redactedContent, vault);
+    trace.mark("rehydrate");
     const ms = performance.now() - t0;
     ctx.stats.upstreamLatency.add(ms);
     reply.header("x-natlas-latency-ms", Math.round(ms));
@@ -214,7 +248,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: GatewayContext) {
     audit.completionTokens = usage.completion_tokens;
     finish(200, "served");
 
-    const meta = { request_id: requestId, cache: cacheable ? "miss" : "bypass", redactions: vault.counts, latency_ms: Math.round(ms), upstream_ms: Math.round(upMs), ...(debug ? { model_saw: redacted } : {}) };
+    const meta = { request_id: requestId, cache: cacheable ? "miss" : "bypass", redactions: vault.counts, latency_ms: Math.round(ms), upstream_ms: Math.round(upMs), trace: trace.toJSON(), ...(debug ? { model_saw: redacted } : {}) };
     if (lite) return { id: requestId, content, cache: meta.cache, ms: Math.round(ms) };
     const out = completionBody(requestId, model, content, choice?.finish_reason ?? "stop", usage, meta);
     if (choice?.message?.tool_calls) (out.choices[0]!.message as Record<string, unknown>).tool_calls = choice.message.tool_calls;
@@ -235,6 +269,8 @@ function completionBody(id: string, model: string, content: string, finishReason
 }
 
 function sseHead(reply: FastifyReply) {
+  const trace = (reply.request as FastifyRequest & { natlasTrace?: Trace }).natlasTrace;
+  if (trace) reply.header("x-natlas-trace", trace.header());
   reply.hijack();
   const res = reply.raw;
   const headers: Record<string, string | number> = {
