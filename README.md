@@ -2,6 +2,10 @@
 
 **The privacy, security and edge-caching proxy for N-ATLAS, Nigeria's sovereign LLM.**
 
+**Live demo:** https://natlas-sovereign-gateway.onrender.com (dashboard and playground) · API base URL `https://natlas-sovereign-gateway.onrender.com/v1` · demo key `sk-natlas-demo-key`
+
+> Hosted on Render's free plan with the built-in mock N-ATLAS. The first request after it has been idle can take about 30 to 50 seconds while it wakes up.
+
 Nigerian banks, fintechs, hospitals and government agencies want to build on N-ATLAS, but they can't send customer BVNs, NINs, phone numbers and home addresses to a model endpoint. They can't expose their internal network to it either, or pay full GPU inference cost for the same FAQ asked ten thousand times a day over a 3G connection.
 
 The gateway sits between their apps and N-ATLAS. Developers change **one line** (the base URL), and every request is then:
