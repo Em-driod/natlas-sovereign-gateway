@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: natlas-sovereign-gateway
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: PSEUDONYM_SECRET
+        generateValue: true
+      - key: MOCK_UPSTREAM
+        value: "true"
+      - key: DEMO_API_KEY
+        value: sk-natlas-demo-key

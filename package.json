@@ -1,0 +1,34 @@
+{
+  "name": "natlas-sovereign-gateway",
+  "version": "1.0.0",
+  "description": "Privacy, security and edge-caching proxy for N-ATLAS, Nigeria's sovereign LLM. OpenAI-compatible, NDPA-aware.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/demo-server.ts",
+    "start:gateway": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "mock": "tsx src/mock/upstream.ts",
+    "demo": "tsx scripts/demo.ts",
+    "bench": "tsx scripts/benchmark.ts",
+    "key": "tsx scripts/create-key.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/compress": "^8.3.1",
+    "fastify": "^5.12.5",
+    "ioredis": "^5.11.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "openai": "^4.104.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
