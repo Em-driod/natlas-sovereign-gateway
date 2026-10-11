@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import compress from "@fastify/compress";
 import { config } from "./config.js";
+import { trustProxyFn } from "./security/proxy-trust.js";
 import type { GatewayContext } from "./context.js";
 import { registerChatRoutes, type Trace } from "./routes/chat.js";
 import { registerAdminRoutes } from "./routes/admin.js";
@@ -14,7 +15,7 @@ export async function buildApp(ctx: GatewayContext, opts: { logger?: boolean } =
     },
     bodyLimit: config.security.maxBodyBytes,
     // Trust exactly the configured number of proxy hops; trusting all would let clients spoof X-Forwarded-For.
-    trustProxy: config.trustProxyHops > 0 ? (_addr: string, hop: number) => hop < config.trustProxyHops : false,
+    trustProxy: trustProxyFn(config.trustProxyHops),
   });
 
   // Mobile-first compression: brotli/gzip for JSON responses (SSE streams bypass this via hijack).

@@ -106,3 +106,15 @@ describe("language detection", () => {
     expect(detectLanguage("Explain the loan policy for small businesses").code).toBe("en");
   });
 });
+
+describe("client IP behind proxies", () => {
+  it("walks past Render's internal hop and Cloudflare to the real client, ignoring spoofed entries", async () => {
+    const { trustProxyFn } = await import("../src/security/proxy-trust.js");
+    const trust = trustProxyFn(1) as (addr: string, hop: number) => boolean;
+    // Chain as Fastify walks it, right to left: socket peer, Render LB, Cloudflare, client, then anything the client injected.
+    const chain = ["10.29.0.5", "10.29.228.133", "162.158.216.168", "197.211.52.14", "6.6.6.6"];
+    const firstUntrusted = chain.find((a, i) => !trust(a, i));
+    expect(firstUntrusted).toBe("197.211.52.14");
+    expect(trustProxyFn(0)).toBe(false);
+  });
+});
