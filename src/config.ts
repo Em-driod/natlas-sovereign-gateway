@@ -24,8 +24,8 @@ const bool = (k: string, d: boolean) => {
 
 export const config = {
   port: num("PORT", 8080),
-  // Not HOST: some platforms (Render) set HOST to the machine hostname, which breaks public binding.
-  host: env("BIND_HOST", "0.0.0.0"),
+  // "::" is dual-stack: accepts IPv4 and IPv6 (some hosts health-check over IPv6).
+  host: env("BIND_HOST", "::"),
 
   /** Any OpenAI-compatible N-ATLAS server: vLLM, Ollama, Featherless, HF TGI, or the bundled mock. */
   upstreamUrl: env("UPSTREAM_URL", "http://127.0.0.1:9090/v1").replace(/\/$/, ""),
