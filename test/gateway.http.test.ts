@@ -14,6 +14,10 @@ process.env.REDIS_URL = "";
 process.env.MOCK_LATENCY_MS = "20";
 process.env.MOCK_JITTER_MS = "0";
 process.env.DEMO_API_KEY = "sk-natlas-demo-key";
+// Hermetic: ignore whatever a developer's local .env sets (it is loaded only for unset variables).
+process.env.ADMIN_TOKEN = "";
+process.env.TRUST_PROXY_HOPS = "0";
+process.env.UPSTREAM_URL = "http://127.0.0.1:1/v1";
 
 let app: FastifyInstance;
 let base = "";
