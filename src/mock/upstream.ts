@@ -67,7 +67,7 @@ app.get("/v1/models", async () => ({
 // Shows exactly what the model received. Locked behind ADMIN_TOKEN when one is set.
 app.get("/_inspect/last", async (req, reply) => {
   const token = process.env.ADMIN_TOKEN;
-  const given = (req.headers.authorization ?? "").replace(/^Bearers+/i, "") || (req.query as { token?: string }).token;
+  const given = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "") || (req.query as { token?: string }).token;
   if (token && given !== token) return reply.code(401).send({ error: { message: "Admin token required" } });
   return last ?? { note: "no requests yet" };
 });
