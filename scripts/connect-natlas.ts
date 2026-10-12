@@ -48,6 +48,6 @@ console.log("\n2/3  Generating natlas-evidence.md …");
 run("npx tsx scripts/natlas-evidence.ts", { GATEWAY_URL: gateway });
 
 console.log("\n3/3  Benchmarking N-ATLaS direct vs gateway vs cache …");
-run("npx tsx scripts/benchmark.ts", { GATEWAY_URL: gateway, UPSTREAM_DIRECT_URL: url, UPSTREAM_API_KEY: key, UPSTREAM_MODEL: "n-atlas-8b" });
+run("npx tsx scripts/benchmark.ts", { GATEWAY_URL: gateway, UPSTREAM_DIRECT_URL: url, UPSTREAM_API_KEY: key, UPSTREAM_MODEL: "n-atlas-8b", BENCH_CONCURRENCY: "1" });
 
 console.log("\nDone. Commit natlas-evidence.md and bench-results.md as integration evidence.");

@@ -24,7 +24,7 @@ The gateway does not wrap any other general-purpose model. Without a GPU attache
 ### Option A: free Colab GPU (about 10 minutes)
 
 1. Accept the terms at https://huggingface.co/NCAIR1/N-ATLaS and create a read token.
-2. Open [`deploy/colab/natlas_vllm_colab.ipynb`](deploy/colab/natlas_vllm_colab.ipynb) in Google Colab, choose a T4 GPU, add the token as the secret `HF_TOKEN`, and run all cells. It serves N-ATLaS with vLLM (4-bit on a T4), sanity-checks Yoruba, Hausa, Igbo and Pidgin, and prints a public URL and key.
+2. Open [`deploy/colab/natlas_vllm_colab.ipynb`](deploy/colab/natlas_vllm_colab.ipynb) in Google Colab, choose a T4 GPU, add the token as the secret `HF_TOKEN`, and run all cells. It serves N-ATLaS with Hugging Face transformers in 4-bit (fits a free T4), sanity-checks Yoruba, Hausa, Igbo and Pidgin, and prints a public URL and key.
 3. Point the running gateway at it, with no redeploy. The gateway calls the endpoint once to validate it before switching, and remembers the choice across restarts:
 
 ```bash

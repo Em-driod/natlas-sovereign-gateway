@@ -13,6 +13,8 @@ const KEY = process.env.GATEWAY_KEY ?? "sk-natlas-demo-key";
 const DIRECT_KEY = process.env.UPSTREAM_API_KEY ?? "";
 const MODEL = process.env.UPSTREAM_MODEL ?? "n-atlas-8b";
 const runId = Date.now().toString(36);
+// A single small GPU serves one request at a time; use BENCH_CONCURRENCY=1 against a real model.
+const CONC = Number(process.env.BENCH_CONCURRENCY ?? 5);
 
 const PROMPTS = [
   "My customer NIN is 12345678901. Explain the loan policy in Pidgin.",
@@ -64,12 +66,12 @@ async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<number>) {
 
 console.log(`Benchmarking ${PROMPTS.length} prompts\n  gateway: ${GATEWAY}\n  direct:  ${DIRECT}\n`);
 
-const direct = await pool(PROMPTS, 5, async (p) => (await timed(DIRECT, DIRECT_KEY, p)).ms);
+const direct = await pool(PROMPTS, CONC, async (p) => (await timed(DIRECT, DIRECT_KEY, p)).ms);
 console.log("  direct N-ATLAS ............ done");
-const cold = await pool(PROMPTS, 5, async (p) => (await timed(GATEWAY, KEY, p)).ms);
+const cold = await pool(PROMPTS, CONC, async (p) => (await timed(GATEWAY, KEY, p)).ms);
 console.log("  gateway, cold (miss) ...... done");
 const warm: number[] = [];
-for (let r = 0; r < 3; r++) warm.push(...(await pool(PROMPTS, 5, async (p) => (await timed(GATEWAY, KEY, p)).ms)));
+for (let r = 0; r < 3; r++) warm.push(...(await pool(PROMPTS, CONC, async (p) => (await timed(GATEWAY, KEY, p)).ms)));
 console.log("  gateway, warm (cache hit) . done");
 
 // Redaction cost on its own.
@@ -95,6 +97,6 @@ const table = `| Path | Requests | Avg | p50 | p95 |
 console.log("\n" + table);
 writeFileSync(
   "bench-results.md",
-  `# Benchmark results\n\nRun ${new Date().toISOString()} against \`${DIRECT}\` (upstream) and \`${GATEWAY}\` (gateway), ${PROMPTS.length} distinct prompts, concurrency 5.\n\n${table}`
+  `# Benchmark results\n\nRun ${new Date().toISOString()} against \`${DIRECT}\` (upstream) and \`${GATEWAY}\` (gateway), ${PROMPTS.length} distinct prompts, concurrency ${CONC}.\n\n${table}`
 );
 console.log("Saved bench-results.md");
