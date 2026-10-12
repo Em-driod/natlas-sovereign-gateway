@@ -47,6 +47,22 @@ Demo links: `/?run=kyc`, `/?run=pcg` (Pidgin jailbreak), `/?run=sem` (semantic c
 
 ## Results
 
+### Against the official N-ATLaS (`NCAIR1/N-ATLaS`, 4-bit on a free Colab T4)
+
+Measured from Lagos against the live gateway (Render, Frankfurt), 10 prompts, one at a time. Full output: [bench-results.md](bench-results.md); multilingual answers and exactly what the model received: [natlas-evidence.md](natlas-evidence.md).
+
+| Path | p50 | p95 |
+|---|---:|---:|
+| N-ATLaS direct (no gateway) | 8.34 s | 12.62 s |
+| Through the gateway, cache miss | 4.20 s | 11.20 s |
+| Through the gateway, cache hit | **265 ms** | 308 ms |
+
+- **31x faster** on cache hits (network round trip included), with no GPU time used.
+- **7 ms** of gateway processing per request (auth, limits, injection scan, PII redaction, audit).
+- N-ATLaS answered correctly in Yoruba, Hausa and Igbo. One observation for the model team: a question asked in Pidgin was answered in Yoruba.
+
+### Against the built-in mock (latency isolated from model speed)
+
 Measured with `npm run bench` on a laptop: 10 distinct prompts, concurrency 5, with the mock upstream simulating realistic 8B-model latency.
 
 | Path | Requests | Avg | p50 | p95 |
