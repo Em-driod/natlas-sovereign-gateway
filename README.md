@@ -379,4 +379,4 @@ test/                   vitest suites
 
 ---
 
-Built for the NITDA / NCAIR N-ATLAS hackathon, Developer Infrastructure track. MIT licensed.
+Built for the NITDA / NCAIR N-ATLAS hackathon, Developer Infrastructure track. [MIT licensed](LICENSE) · [Contributing](CONTRIBUTING.md).
