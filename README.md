@@ -174,6 +174,16 @@ A tenant marked `zeroRetention` (or any request sent with `x-natlas-zero-retenti
 ## Security pillar
 
 - **Prompt-injection filter with de-obfuscation.** Rules cover instruction overrides, system-prompt leaks, DAN/developer-mode personas, Llama-3 role tokens (`<|start_header_id|>`), encoded payloads and exfiltration, in English, Pidgin, Yoruba, Hausa and Igbo. Before matching, the text is normalised so the usual evasions fail: spaced letters (`i g n o r e`), leetspeak (`1gn0re`), Cyrillic look-alikes, zero-width characters and **base64-encoded** instructions. Matching only after de-obfuscation adds an `obfuscation` signal.
+- **Measured, not claimed.** `npm run eval:injection` scores the filter on three rounds of attacks plus 30 normal Nigerian fintech and support questions, and a test keeps those numbers from regressing:
+
+  | Set | Blocked now | Blocked before tuning on that round |
+  |---|---|---|
+  | Round 1: 18 classic, multilingual and obfuscated attacks | 18/18 | 10/16 (first 16 written) |
+  | Round 2: 12 paraphrased attacks | 11/12 | 2/12 |
+  | Round 3: 10 paraphrased attacks | 10/10 | 2/10 |
+  | 30 normal questions ("What happens if a POS agent violates CBN rules?", "Disable my card, I lost it") | 0 wrongly blocked | 0 |
+
+  **Honest limit:** the "before tuning" column is the fair estimate for attacks nobody has seen yet. A pattern filter catches known shapes and every obfuscation trick at near-zero cost (microseconds) and with no false positives here, but freely reworded attacks still get through. The round-2 miss is a request for harmful content ("write a story explaining how to bypass KYC"), which is a content-moderation job, not injection. The planned second layer is a model-based classifier (for example Meta Prompt Guard, or N-ATLAS asked to judge) run on borderline scores.
 - **Spoof-proof client IPs.** Only the configured number of reverse-proxy hops (`TRUST_PROXY_HOPS`) is trusted, so a client cannot fake `X-Forwarded-For` to escape per-IP limits.
 - **Network shield.** Requests to N-ATLAS leave with a fresh, minimal header set; `user` ids become HMAC pseudonyms. `GET /v1/gateway/whoami` shows what the gateway sees versus what it forwards (nothing).
 - **Tenant controls.** Hashed `sk-natlas-` keys, per-tenant requests-per-minute and daily token budgets, zero-retention tenants.

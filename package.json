@@ -14,7 +14,8 @@
     "key": "tsx scripts/create-key.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "evidence": "tsx scripts/natlas-evidence.ts"
+    "evidence": "tsx scripts/natlas-evidence.ts",
+    "eval:injection": "tsx scripts/eval-injection.ts"
   },
   "engines": {
     "node": ">=20.0.0"
