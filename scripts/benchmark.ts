@@ -35,7 +35,7 @@ async function timed(url: string, key: string, prompt: string, extraHeaders: Rec
   const res = await fetch(`${url}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(key ? { authorization: `Bearer ${key}` } : {}), ...extraHeaders },
-    body: JSON.stringify({ model: MODEL, temperature: 0.2, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: MODEL, temperature: 0.2, max_tokens: 150, messages: [{ role: "user", content: prompt }] }),
   });
   await res.arrayBuffer();
   if (!res.ok) throw new Error(`${url} -> ${res.status}`);

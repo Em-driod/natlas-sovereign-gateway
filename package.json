@@ -15,7 +15,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "evidence": "tsx scripts/natlas-evidence.ts",
-    "eval:injection": "tsx scripts/eval-injection.ts"
+    "eval:injection": "tsx scripts/eval-injection.ts",
+    "connect": "tsx scripts/connect-natlas.ts"
   },
   "engines": {
     "node": ">=20.0.0"
