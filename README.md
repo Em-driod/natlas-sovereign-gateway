@@ -6,7 +6,7 @@
 
 **Live:** https://natlas-gateway.onrender.com (dashboard and playground) · API base URL `https://natlas-gateway.onrender.com/v1` · demo key `sk-natlas-demo-key` · [beta evidence](https://natlas-gateway.onrender.com/beta) · [NDPA report](https://natlas-gateway.onrender.com/admin/report) · [N-ATLAS integration](N-ATLAS-INTEGRATION.md)
 
-> Hosted on Render's free plan, so the first request after it has been idle can take 30 to 50 seconds while it wakes up. The badge in the dashboard header shows which upstream is live: the official N-ATLaS, or the built-in mock used when no GPU is attached.
+> Hosted on Render's free plan. A scheduled GitHub Action ([keep-warm.yml](.github/workflows/keep-warm.yml)) pings it every 10 minutes so it stays awake, and checks redaction and the audit chain on each run. The badge in the dashboard header shows which upstream is live: the official N-ATLaS, or the built-in mock used when no GPU is attached.
 
 Nigerian banks, fintechs, hospitals and government agencies want to build on N-ATLAS, but they can't send customer BVNs, NINs, phone numbers and home addresses to a model endpoint. They can't expose their internal network to it either, or pay full GPU inference cost for the same FAQ asked ten thousand times a day over a 3G connection.
 

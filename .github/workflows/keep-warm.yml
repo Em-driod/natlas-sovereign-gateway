@@ -1,0 +1,33 @@
+name: Keep warm and uptime check
+
+# Render's free plan sleeps after ~15 idle minutes; pinging every 10 minutes keeps
+# the live gateway awake for judges and testers, and fails loudly if it is unhealthy.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GATEWAY: https://natlas-gateway.onrender.com
+    steps:
+      - name: Health (wakes the instance if asleep)
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if curl -sf --max-time 60 "$GATEWAY/healthz" -o health.json; then cat health.json; echo; exit 0; fi
+            echo "attempt $i failed, retrying"; sleep 10
+          done
+          echo "::error::Gateway health check failed"; exit 1
+
+      - name: Pipeline smoke test (redaction + audit chain)
+        run: |
+          redacted=$(curl -sf --max-time 30 -X POST "$GATEWAY/v1/gateway/inspect" \
+            -H "content-type: application/json" -d '{"text":"My NIN is 12345678901"}')
+          echo "$redacted"
+          echo "$redacted" | grep -q '\[NIN_1\]' || { echo "::error::Redaction check failed"; exit 1; }
+          chain=$(curl -sf --max-time 30 "$GATEWAY/admin/audit/verify")
+          echo "$chain"
+          echo "$chain" | grep -q '"ok":true' || { echo "::error::Audit chain verification failed"; exit 1; }
